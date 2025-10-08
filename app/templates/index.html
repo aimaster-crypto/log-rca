@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Log RCA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="icon" href="data:," />
+  <style>
+    .rca-content { max-width: 100%; overflow-wrap: break-word; }
+    .rca-content h1, .rca-content h2, .rca-content h3 { color: #1f2937; margin-top: 1.5em; margin-bottom: 0.5em; }
+    .rca-content h1 { border-bottom: 2px solid #e5e7eb; padding-bottom: 0.3em; }
+    .rca-content ul { list-style-type: disc; padding-left: 1.5em; }
+    .rca-content li { margin-bottom: 0.25em; }
+    .rca-content strong { font-weight: 600; color: #111827; }
+    .rca-content code { background-color: #f3f4f6; padding: 0.125em 0.25em; border-radius: 0.25em; font-family: monospace; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div class="max-w-5xl mx-auto p-6">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold text-slate-800">Log RCA Assistant</h1>
+      <p class="text-slate-600">Enter a correlation ID to analyze logs, retrieve code context, and generate an RCA.</p>
+      <a href="/ingest-ui" class="inline-block mt-3 text-blue-600 hover:underline">Go to Ingestion Page →</a>
+    </header>
+
+    <section class="bg-white shadow rounded-lg p-6">
+      <form id="rcaForm" class="flex flex-col md:flex-row gap-3 items-start md:items-end">
+        <div class="flex-1 w-full">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Correlation ID</label>
+          <input id="correlationId" type="text" placeholder="e.g. 6f9a2c..." class="w-full border rounded px-3 py-2 focus:outline-none focus:ring focus:border-slate-400" />
+        </div>
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded">Analyze</button>
+        <button id="ingestBtn" type="button" class="bg-slate-700 hover:bg-slate-800 text-white font-semibold px-4 py-2 rounded">Build Index</button>
+      </form>
+      <p id="status" class="text-sm text-slate-500 mt-2"></p>
+    </section>
+
+    <section class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-white shadow rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Logs</h2>
+        <div id="logs" class="space-y-2 text-sm text-slate-800 whitespace-pre-wrap"></div>
+      </div>
+      <div class="bg-white shadow rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">RCA</h2>
+        <div id="rca" class="prose prose-sm max-w-none"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const logsEl = document.getElementById('logs');
+    const rcaEl = document.getElementById('rca');
+
+    document.getElementById('ingestBtn').addEventListener('click', async () => {
+      statusEl.textContent = 'Building vector index from Java codebase...';
+      try {
+        const resp = await fetch('/ingest', { method: 'POST' });
+        const data = await resp.json();
+        statusEl.textContent = 'Index built.';
+      } catch (e) {
+        statusEl.textContent = 'Failed to build index. Check server logs.';
+      }
+    });
+
+    document.getElementById('rcaForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const correlationId = document.getElementById('correlationId').value.trim();
+      if (!correlationId) { statusEl.textContent = 'Please enter a correlation ID.'; return; }
+      statusEl.textContent = 'Analyzing... fetching logs and generating RCA...';
+      logsEl.textContent = '';
+      rcaEl.textContent = '';
+
+      try {
+        const [logsResp, rcaResp] = await Promise.all([
+          fetch(`/api/logs?correlation_id=${encodeURIComponent(correlationId)}`),
+          fetch('/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ correlation_id: correlationId }) })
+        ]);
+        const logsData = await logsResp.json();
+        const rcaData = await rcaResp.json();
+
+        // Render logs
+        if (logsData.logs?.length) {
+          logsEl.textContent = logsData.logs.map(l => `[${l.ts || l.timestamp}] ${l.level} ${l.logger}: ${l.message}`).join('\n');
+        } else {
+          logsEl.textContent = 'No logs found.';
+        }
+
+        // Render RCA
+        const rcaMd = rcaData.rca || 'No RCA generated.';
+        try {
+          rcaEl.innerHTML = window.marked ? marked.parse(rcaMd) : rcaMd;
+          rcaEl.className = 'rca-content mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200';
+        } catch (e) {
+          rcaEl.textContent = rcaMd;
+        }
+        statusEl.textContent = `Done. Logs: ${rcaData.log_count || 0}, Context: ${rcaData.context_count || 0}`;
+      } catch (e) {
+        statusEl.textContent = 'Analysis failed. Check server logs.';
+      }
+    });
+  </script>
+</body>
+</html>

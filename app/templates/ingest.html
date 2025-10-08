@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ingest Spring Boot Codebase</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="icon" href="data:," />
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div class="max-w-3xl mx-auto p-6">
+    <header class="mb-8">
+      <h1 class="text-2xl font-bold text-slate-800">Ingest Spring Boot Codebase</h1>
+      <p class="text-slate-600">Enter a local path to your Spring Boot project to scan for log statements and index contextual snippets.</p>
+      <a href="/" class="inline-block mt-3 text-blue-600 hover:underline">← Back to Home</a>
+    </header>
+
+    <section class="bg-white shadow rounded-lg p-6">
+      <form id="ingestForm" class="flex flex-col gap-3">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Spring Boot Project Path</label>
+          <input id="javaPath" type="text" placeholder="e.g. /Users/me/projects/my-spring-app" class="w-full border rounded px-3 py-2 focus:outline-none focus:ring focus:border-slate-400" />
+        </div>
+        <div class="flex gap-3">
+          <button type="submit" class="bg-slate-800 hover:bg-slate-900 text-white font-semibold px-4 py-2 rounded">Build Index</button>
+          <button id="useEnvBtn" type="button" class="bg-slate-600 hover:bg-slate-700 text-white font-semibold px-4 py-2 rounded">Use .env JAVA_CODE_PATH</button>
+        </div>
+      </form>
+      <p id="status" class="text-sm text-slate-500 mt-3"></p>
+    </section>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+
+    document.getElementById('useEnvBtn').addEventListener('click', async () => {
+      statusEl.textContent = 'Building index using JAVA_CODE_PATH from .env...';
+      try {
+        const resp = await fetch('/ingest', { method: 'POST' });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          statusEl.textContent = 'Index built (env path).';
+        } else {
+          statusEl.textContent = 'Failed: ' + JSON.stringify(data);
+        }
+      } catch (e) {
+        statusEl.textContent = 'Failed to build index. Check server logs.';
+      }
+    });
+
+    document.getElementById('ingestForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const javaPath = document.getElementById('javaPath').value.trim();
+      if (!javaPath) { statusEl.textContent = 'Please enter a local path.'; return; }
+      statusEl.textContent = 'Building vector index from: ' + javaPath + ' ...';
+
+      try {
+        const resp = await fetch('/ingest/path', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ java_path: javaPath })
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+          statusEl.textContent = `Indexed ${data.documents_indexed || 0} snippets from ${data.path}`;
+        } else {
+          statusEl.textContent = 'Failed: ' + JSON.stringify(data);
+        }
+      } catch (e) {
+        statusEl.textContent = 'Failed to build index. Check server logs.';
+      }
+    });
+  </script>
+</body>
+</html>
